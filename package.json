@@ -1,0 +1,11 @@
+{
+  "name": "voucher-watcher",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "node-fetch": "^3.3.2",
+    "telegraf": "^4.16.3"
+  }
+}
