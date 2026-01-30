@@ -5,9 +5,10 @@ import fs from "fs";
 
 // ================== ENV ==================
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const GRIVY_BEARER = process.env.GRIVY_BEARER; // TANPA kata "Bearer"
-const GA_CID = process.env.GA_CID;             // dari payload DevTools
-const DOMAIN = process.env.DOMAIN;             // dari payload DevTools
+
+// PENTING: TANPA GRIVY_BEARER
+const GA_CID = process.env.GA_CID;     // dari payload DevTools (gaCid)
+const DOMAIN = process.env.DOMAIN;     // dari payload DevTools (domain)
 
 const API_URL =
   process.env.API_URL ||
@@ -18,16 +19,12 @@ const CAMPAIGN_PUBLIC_CODE =
 
 const TARGET_URL =
   process.env.TARGET_URL ||
-  "https://paduannya-nikmat.frestea.co.id/c/frestea-ramadan-911?token=93b22735-988f-401d-8a6f-84fff4c5e238&provider=google";
+  "https://paduannya-nikmat.frestea.co.id/c/frestea-ramadan-911";
 
 const INTERVAL_MS = Number(process.env.INTERVAL_MS || 90000);
 
 if (!BOT_TOKEN) {
   console.error("ENV BOT_TOKEN belum diisi.");
-  process.exit(1);
-}
-if (!GRIVY_BEARER) {
-  console.error("ENV GRIVY_BEARER belum diisi (token panjang tanpa kata Bearer).");
   process.exit(1);
 }
 if (!GA_CID) {
@@ -65,7 +62,9 @@ function loadState() {
   try {
     const raw = fs.readFileSync(STATE_FILE, "utf8");
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : { lastAvailable: false };
+    return parsed && typeof parsed === "object"
+      ? parsed
+      : { lastAvailable: false };
   } catch {
     return { lastAvailable: false };
   }
@@ -110,7 +109,10 @@ bot.start(async (ctx) => {
       registeredAt: new Date().toISOString(),
     });
     saveChats(chats);
-    await ctx.reply("✅ Chat kamu berhasil terdaftar.\nAku akan kirim notifikasi kalau voucher tersedia.");
+    await ctx.reply(
+      "✅ Chat kamu berhasil terdaftar.\n" +
+      "Aku akan kirim notifikasi kalau voucher tersedia."
+    );
   } else {
     await ctx.reply("ℹ️ Chat kamu sudah terdaftar sebelumnya.");
   }
@@ -143,7 +145,7 @@ bot.command("reset", async (ctx) => {
   await ctx.reply("♻️ State di-reset. Notif akan dikirim lagi kalau berubah TERSEDIA.");
 });
 
-// ================== CORE: API CHECK ==================
+// ================== CORE: API CHECK (NO BEARER) ==================
 
 async function fetchCampaign() {
   // payload PERSIS seperti DevTools:
@@ -156,12 +158,12 @@ async function fetchCampaign() {
     },
   };
 
+  // PENTING: tidak ada header Authorization sama sekali
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       accept: "application/json",
-      authorization: `Bearer ${GRIVY_BEARER}`,
       "user-agent": "Mozilla/5.0 (VoucherWatcher)",
       origin: "https://paduannya-nikmat.frestea.co.id",
       referer: "https://paduannya-nikmat.frestea.co.id/",
@@ -169,12 +171,13 @@ async function fetchCampaign() {
     body: JSON.stringify(payload),
   });
 
+  const txt = await res.text().catch(() => "");
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`API error ${res.status} ${res.statusText} :: ${txt.slice(0, 300)}`);
+    throw new Error(`API error ${res.status} ${res.statusText} :: ${txt.slice(0, 500)}`);
   }
 
-  return res.json();
+  // parse dari txt biar aman
+  return JSON.parse(txt);
 }
 
 function parseAvailability(data) {
@@ -224,8 +227,9 @@ async function checkOnce(manual = false) {
         `⚠️ Gagal cek API.\n` +
         `Error: ${msg}\n\n` +
         `Catatan:\n` +
-        `- Jika 401/403: Bearer token expired/salah (update GRIVY_BEARER).\n` +
-        `- Jika 400: GA_CID / DOMAIN / payload tidak cocok (update GA_CID dari DevTools).`
+        `- Jika 400: GA_CID / DOMAIN / payload tidak cocok.\n` +
+        `- Jika 429: terlalu sering cek (naikkan INTERVAL_MS).\n` +
+        `- Jika 5xx: server Grivy lagi error (coba lagi).`
       );
     }
     return;
@@ -233,7 +237,7 @@ async function checkOnce(manual = false) {
 
   const info = parseAvailability(json);
 
-  // log ke terminal biar kamu yakin bot jalan terus
+  // log ke terminal (penting buat yakin interval jalan)
   console.log(
     `[${new Date().toISOString()}] active=${info.campaignActive} available=${info.available} stores=${formatStoreLine(info.perStore)}`
   );
@@ -272,6 +276,7 @@ async function checkOnce(manual = false) {
 bot.launch().then(() => {
   console.log("Bot running...");
   console.log("Interval:", INTERVAL_MS, "ms");
+  console.log("Using Bearer? false"); // biar jelas di log
 });
 
 // run langsung + interval
